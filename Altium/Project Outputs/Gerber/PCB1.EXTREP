@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------------------
-Gerber File Extension Report For: PCB1.GBR   1/26/2026  10:44:20 AM
+Gerber File Extension Report For: PCB1.GBR   1/26/2026  10:43:04 AM
 ------------------------------------------------------------------------------------------
 
 
@@ -17,11 +17,15 @@ Layer Extension     Layer Description
 .gbr                Bottom Paste                            
 .gbr                Bottom Overlay                          
 .gbr                Board                                   
+.gbr                Route Tool Path                         
 .gbr                Dimensions                              
 .gbr                Top 3D Body                             
+.gbr                Bottom 3D Body                          
 .gbr                Top Component Center                    
 .gbr                Top Assembly                            
+.gbr                Bottom Assembly                         
 .gbr                Top Courtyard                           
+.gbr                Bottom Courtyard                        
 .gbr                Keep-Out Layer                          
 .gbr                Top Pad Master                          
 .gbr                Bottom Pad Master                       
