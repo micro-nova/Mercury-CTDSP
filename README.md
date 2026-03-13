@@ -76,7 +76,7 @@ The PCB follows a modular two-stage-block design. Each block contains one compar
 
 ### Schematic
 
-![Schematic](images/schematic.png)
+![Schematic](images/Schematic.png)
 
 The analog signal path flows from input conditioning through dual comparator stages (U1, U2), into an analog MUX for conditional subtraction (U3), and through instrumentation amplifier stages (U4). The signal path repeats for stages 5–8 on the right half of the board.
 
