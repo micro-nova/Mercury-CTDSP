@@ -1,7 +1,7 @@
 Protel Design System Design Rule Check
-PCB File : C:\Users\ejros\Downloads\Hanna Lab\CTDSP\Altium\PCB2.PcbDoc
-Date     : 5/5/2026
-Time     : 12:58:12 PM
+PCB File : C:\Users\ejros\Downloads\Hanna Lab\Mercury-CTDSP\Altium\ctdsp-v4\PCB2.PcbDoc
+Date     : 5/6/2026
+Time     : 2:21:15 PM
 
 Processing Rule : Clearance Constraint (Gap=0mil) ((Layer = 'KeepOutLayer')),(All)
 Rule Violations :0
