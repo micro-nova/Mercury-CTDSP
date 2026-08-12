@@ -395,5 +395,7 @@ Altium/Project Outputs/Gerber/PCB1.LDP
 Altium/Project Outputs/Gerber/PCB1.REP
 Altium/Project Outputs/Gerber/PCB1.TXT
 Altium/Project Outputs/Pick Place/Pick Place for PCB1.csv
-Python/receive_ctdsp.py
-Python/receive_delta.py
+
+# Python host package artefacts
+__pycache__/
+*.pyc

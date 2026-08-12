@@ -44,10 +44,23 @@ The comparator output from each stage is routed to the Mercury 2 FPGA, where tra
 
 ### Event Data Format
 
-The FPGA firmware transmits 5-byte packets over UART for each level-crossing event:
+The link runs a framed, bidirectional protocol (**v2**, firmware ID `0x00000003`) at 3 Mbaud with RTS/CTS flow control. Every frame is COBS-encoded and terminated by a single `0x00` byte, so a `0x00` can never occur inside a frame and resynchronising after a dropped byte is simply "scan to the next `0x00`":
 
-- **Bytes 0–3:** 32-bit timestamp (MSB first)
-- **Byte 4:** 8-bit value field — either a delta/polarity word (polarity bit + 7-bit delta magnitude) or a direct 8-bit ADC reading
+```
+<COBS(payload)> 0x00        payload = [type:1] [body...] [crc16:2 LE]
+```
+
+`crc16` is CRC-16/CCITT-FALSE over the type byte and body. Device-to-host frame types are `EVENT_BATCH` (`0x01`), `STATUS` (`0x02`), `HELLO` (`0x03`) and `ACK` (`0x04`); the host can send `PING`, `START`, `STOP`, `RESET`, `GET_STATUS`, `SET_SETTLING` and `SET_BATCH`.
+
+Events ship in batches rather than one packet each:
+
+```
+EVENT_BATCH  [seq:1][abs_ts:6][n:1][ev_0 .. ev_(n-1)]      ev = [varint dt][bits:1]
+```
+
+`abs_ts` is a 48-bit free-running tick count at the device clock rate reported by `HELLO`, and each event's timestamp is the running sum of the deltas. Because every batch carries its own absolute anchor, a lost frame costs exactly that frame — the next one re-anchors itself with no host intervention. `seq` increments per frame and wraps at 256, giving the host a definitive loss detector.
+
+The wire format is specified in full at the top of `Python/ctdsp/protocol.py` and is mirrored bit-for-bit by `frame_tx.vhd` and `cmd_rx.vhd` in the VHDL.
 
 ---
 
@@ -88,36 +101,65 @@ The analog signal path flows from input conditioning through dual comparator sta
 
 - **Xilinx Vivado** (2019.1 or later recommended) for VHDL synthesis and FPGA programming
 - **Python 3.8+** for host-side data capture and analysis
-- Python packages: `pyserial`, `numpy`, `matplotlib`
+- Python packages: `pyserial`, `numpy`, `pyqtgraph`, `PyQt5`
 
 ```bash
-pip install pyserial numpy matplotlib
+pip install -r Python/requirements.txt
 ```
+
+Only the live plot needs `pyqtgraph`/`PyQt5`. The codec, the device session and the CLI import cleanly without a GUI stack, so headless capture over SSH or in CI works with just `pyserial` and `numpy`.
 
 ### Programming the FPGA
 
 1. Open Vivado and create a new project targeting the **Artix-7 XC7A35T** (Mercury 2)
-2. Add the provided VHDL source files from the `hdl/` directory
-3. Apply the provided XDC constraints file for pin mapping
-4. Run Synthesis → Implementation → Generate Bitstream
-5. Program the Mercury 2 via the USB/JTAG interface
+2. Add the VHDL sources and the `mercury.xdc` constraints file from the Vivado project in `HDL/CT-DSP.zip`
+3. Run Synthesis → Implementation → Generate Bitstream
+4. Program the Mercury 2 via the USB/JTAG interface
 
-A pre-built bitstream is provided in `bitstream/` for quick start without requiring re-synthesis.
+To skip synthesis entirely, program the pre-built **`HDL/dsp_top.bit`** directly. This is the bitstream the Python package expects: protocol v2, firmware ID `0x00000003`.
 
 ### Capturing Data with Python
 
-Connect the Mercury 2 via USB. The FTDI interface will enumerate as a virtual COM port.
+Connect the Mercury 2 via USB. The FTDI part exposes two interfaces and **the CT-DSP is on channel B** — on a bench with more than one FTDI device, pass the port explicitly rather than relying on auto-detection.
 
 ```bash
-python sample/capture.py --port COM3 --baud 921600
+cd Python
+pip install -r requirements.txt
 ```
 
-Replace `COM3` with the appropriate port for your system (e.g., `/dev/ttyUSB0` on Linux).
+The fastest check after flashing is a `ping`. A successful `HELLO` confirms the baud rate, framing, CRC and the device's reported clock all at once, before any streaming is involved:
 
-Sample scripts in the `sample/` directory demonstrate:
-- Real-time event capture and display
-- Signal reconstruction from level-crossing events
-- Basic CT-DSP analysis on captured data
+```bash
+python -m ctdsp.cli ports              # list serial ports
+python -m ctdsp.cli ping COM11         # handshake: protocol, firmware id, clock
+python -m ctdsp.cli capture COM11 --count 1000 --csv out.csv
+```
+
+For the live plot:
+
+```bash
+python receive_ctdsp.py COM11 --window 5 --ticks --time-span 2
+```
+
+Three lines is the whole API:
+
+```python
+import ctdsp
+
+dev = ctdsp.receive("COM11")                        # opens port, handshakes, streams
+ctdsp.plot(dev, window=5, ticks=True, time_span=2)  # live reconstruction
+```
+
+`ctdsp.receive()` performs the `HELLO` handshake on open, so a bad baud rate, a stale bitstream or a dead board fails immediately instead of showing up as silence later. `CtdspDevice` is a context manager and `dev.events()` yields decoded events, so headless capture needs no GUI stack:
+
+```python
+with ctdsp.receive("COM11") as dev:
+    hz = dev.hello.clk_freq_hz          # tick rate comes from the device, not a constant
+    for event in dev.events(timeout=5):
+        print(event.ticks / hz, event.bits)   # seconds, 8-bit comparator snapshot
+```
+
+See `Python/example.py` for the plotting entry point and `python -m ctdsp.selftest` for a self-check of the codec and link.
 
 ---
 
@@ -125,24 +167,29 @@ Sample scripts in the `sample/` directory demonstrate:
 
 ```
 Mercury-CTDSP/
-├── altium/                  # Altium Designer hardware files
+├── Altium/                  # Altium Designer hardware files
 │   ├── *.SchDoc             # Schematics
 │   ├── *.PcbDoc             # PCB layout
-│   └── *.PrjPcb             # Project file
-├── hdl/                     # VHDL firmware for Mercury 2
-│   ├── ct_dsp_top.vhd       # Top-level design
-│   ├── event_detector.vhd   # Edge detection and settling logic
-│   ├── uart_tx.vhd          # UART transmitter
-│   └── constraints.xdc      # Vivado pin constraints
-├── bitstream/               # Pre-built FPGA bitstream
-│   └── ct_dsp.bit
-├── sample/                  # Sample Python scripts
-│   ├── capture.py           # Real-time data capture
-│   ├── reconstruct.py       # Signal reconstruction
-│   └── plot_events.py       # Event visualization
+│   ├── *.PrjPcb             # Project file
+│   ├── ctdsp-v4/            # Revision 4 board
+│   └── Project Outputs/     # Gerbers, drill files, pick-and-place, BOM
+├── HDL/                     # FPGA firmware for Mercury 2
+│   ├── dsp_top.bit          # Pre-built bitstream (proto v2, fw 0x00000003)
+│   └── CT-DSP.zip           # Full Vivado 2019.1 project and VHDL sources
+├── Python/                  # Host-side capture, decode and plotting
+│   ├── ctdsp/
+│   │   ├── protocol.py      # Wire-format codec, no I/O
+│   │   ├── device.py        # Serial session: handshake, commands, events
+│   │   ├── view.py          # Filters and the live plot
+│   │   ├── cli.py           # Bring-up tool: ports, ping, status, capture
+│   │   └── selftest.py      # Codec and link self-check
+│   ├── receive_ctdsp.py     # Live plot, command-line front end
+│   ├── example.py           # Minimal three-line usage example
+│   └── requirements.txt
+├── LTspice3bitstage/        # LTspice simulations of the stage circuit
 ├── images/                  # Documentation images
 │   ├── ctdsp.png
-│   ├── schematic.png
+│   ├── Schematic.png
 │   └── pcb.png
 └── README.md
 ```
